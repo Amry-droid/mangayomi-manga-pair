@@ -1,10 +1,15 @@
 // Mangayomi JavaScript source: MangaBat (mangabats.com).
 // This file is standalone; Mangayomi supplies MProvider, Client and Document.
 class DefaultExtension extends MProvider {
+  constructor() {
+    super();
+    this.client = new Client();
+  }
+
   get root() { return this.source.baseUrl.replace(/\/$/, ""); }
 
   getHeaders(url) {
-    return { "Referer": this.root + "/" };
+    return { "Accept": "*/*", "Referer": this.root + "/", "User-Agent": "MangaYomi" };
   }
 
   absolute(value) {
@@ -15,7 +20,7 @@ class DefaultExtension extends MProvider {
   }
 
   async request(url) {
-    const response = await new Client().get(this.absolute(url), this.getHeaders(url));
+    const response = await this.client.get(this.absolute(url), this.getHeaders(url));
     if (response.statusCode >= 400) throw new Error("HTTP " + response.statusCode);
     if (/performing security verification|verify you are human|just a moment/i.test(response.body)) {
       throw new Error("The site requires browser verification; open it in Mangayomi WebView.");
@@ -210,7 +215,7 @@ class DefaultExtension extends MProvider {
   chapterApiMeta(raw) {
     let data;
     try { data = typeof raw === "string" ? JSON.parse(raw) : raw; }
-    catch (_) { return { batchSize: 0, hasMore: false }; }
+    catch (_) { return { batchSize: 0, hasMore: false, total: 0 }; }
     let pagination = null;
     let batchSize = 0;
     for (let depth = 0; depth < 7 && data; depth++) {
@@ -228,16 +233,26 @@ class DefaultExtension extends MProvider {
     }
     const more = pagination &&
       (pagination.has_more !== undefined ? pagination.has_more : pagination.hasMore);
+    const total = pagination && Number(pagination.total);
     return { batchSize, hasMore: more === true || more === 1 ||
-      String(more).toLowerCase() === "true" };
+      String(more).toLowerCase() === "true", total: Number.isFinite(total) ? total : 0 };
   }
 
   async fetchApiChapters(endpoint, mangaUrl, anchorTime) {
+    const join = endpoint.includes("?") ? "&" : "?";
+    try {
+      const raw = await this.request(endpoint + join + "limit=-1&offset=0");
+      const complete = this.parseChapters(raw, mangaUrl, anchorTime);
+      const meta = this.chapterApiMeta(raw);
+      if (complete.length && !meta.hasMore && (!meta.total || meta.batchSize >= meta.total)) {
+        return this.mergeChapters(complete);
+      }
+    } catch (error) { /* Fall back to bounded pagination below. */ }
+
     const chapters = [];
     let offset = 0;
     let previous = anchorTime;
     for (let call = 0; call < 40; call++) {
-      const join = endpoint.includes("?") ? "&" : "?";
       let raw;
       try { raw = await this.request(endpoint + join + "limit=500&offset=" + offset); }
       catch (error) {
