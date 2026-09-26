@@ -80,8 +80,9 @@ class Client {
     if (url.includes('/api/manga/')) {
       const offsetMatch = url.match(/[?&]offset=(\d+)/);
       const offset = offsetMatch ? Number(offsetMatch[1]) : 0;
-      const first = offset === 0 ? 89 : 39;
-      const last = offset === 0 ? 40 : 1;
+      const allChapters = /[?&]limit=-1(?:&|$)/.test(url);
+      const first = allChapters || offset === 0 ? 89 : 39;
+      const last = allChapters ? 1 : offset === 0 ? 40 : 1;
       const chapters = [];
       for (let number = first; number >= last; number--) chapters.push({
         chapter_name: 'Chapter ' + number,
@@ -90,7 +91,8 @@ class Client {
         updated_at: new Date(Date.UTC(2025, 0, 1) + number * 86400000).toISOString(),
       });
       body = JSON.stringify({ data: { chapters, pagination: {
-        total: 89, limit: 500, offset, has_more: offset === 0,
+        total: 89, limit: allChapters ? -1 : 500, offset,
+        ...(allChapters ? {} : { has_more: offset === 0 }),
       } } });
     }
     else if (url.includes('/manga/example/chapter-')) body = 'PAGES';
@@ -133,6 +135,8 @@ for (const [file, base] of [
     const previousYear = ext.parseDate(ext.normalizeDate('12-31 23:00', newYearAnchor));
     assert.equal(new Date(Number(previousYear)).getFullYear(), 2024);
     assert.equal(ext.parseDate(ext.normalizeDate('1756082100')), '1756082100000');
+    assert.equal(ext.parseDate('2025-08-25T07:35:19.000000Z'),
+      String(new Date('2025-08-25T07:35:19Z').getTime()));
     const longBounds = {
       select: selector => selector === '.read-chapter a[href]' ? [
         element('Start Reading', { href: '/manga/long/chapter-1' }),
