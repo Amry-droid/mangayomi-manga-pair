@@ -207,6 +207,55 @@ class DefaultExtension extends MProvider {
     return chapters;
   }
 
+  chapterApiMeta(raw) {
+    let data;
+    try { data = typeof raw === "string" ? JSON.parse(raw) : raw; }
+    catch (_) { return { batchSize: 0, hasMore: false }; }
+    let pagination = null;
+    let batchSize = 0;
+    for (let depth = 0; depth < 7 && data; depth++) {
+      if (Array.isArray(data)) {
+        batchSize = data.length;
+        break;
+      }
+      if (typeof data !== "object") break;
+      if (!pagination && data.pagination && typeof data.pagination === "object") {
+        pagination = data.pagination;
+      }
+      const next = data.chapters || data.items || data.results || data.list || data.data;
+      if (!next || next === data) break;
+      data = next;
+    }
+    const more = pagination &&
+      (pagination.has_more !== undefined ? pagination.has_more : pagination.hasMore);
+    return { batchSize, hasMore: more === true || more === 1 ||
+      String(more).toLowerCase() === "true" };
+  }
+
+  async fetchApiChapters(endpoint, mangaUrl, anchorTime) {
+    const chapters = [];
+    let offset = 0;
+    let previous = anchorTime;
+    for (let call = 0; call < 40; call++) {
+      const join = endpoint.includes("?") ? "&" : "?";
+      let raw;
+      try { raw = await this.request(endpoint + join + "limit=500&offset=" + offset); }
+      catch (error) {
+        if (!chapters.length) throw error;
+        break;
+      }
+      const page = this.parseChapters(raw, mangaUrl, previous);
+      const meta = this.chapterApiMeta(raw);
+      chapters.push(...page);
+      const dated = page.filter(chapter => chapter.dateUpload);
+      if (dated.length) previous = Number(dated[dated.length - 1].dateUpload);
+      const advance = meta.batchSize || page.length;
+      if (!advance || !meta.hasMore) break;
+      offset += advance;
+    }
+    return this.mergeChapters(chapters);
+  }
+
   chapterNumber(chapter) {
     let match = (chapter.url || "").match(/\/chapter-(\d+)(?:-(\d+))?(?:\/|$)/i);
     if (match) return Number(match[1] + (match[2] ? "." + match[2] : ""));
@@ -279,7 +328,7 @@ class DefaultExtension extends MProvider {
     const slug = this.attr(container, "data-comic-slug") || link.split("/").pop();
     if (apiTemplate) {
       const endpoint = apiTemplate.replace("__SLUG__", encodeURIComponent(slug));
-      try { apiChapters = this.parseChapters(await this.request(endpoint), link, anchorTime); }
+      try { apiChapters = await this.fetchApiChapters(endpoint, link, anchorTime); }
       catch (error) { /* An inline chapter list may still be available. */ }
     }
     let inlineChapters = this.chaptersFromRows(doc, anchorTime);
