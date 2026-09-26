@@ -114,8 +114,12 @@ for (const [file, base] of [
     assert.equal(new Date(Number(detail.chapters[0].dateUpload)).getFullYear(), 2025);
     assert.equal(new Date(Number(detail.chapters[1].dateUpload)).getFullYear(), 2025);
     assert.equal(detail.chapters[2].dateUpload, '');
-    const newYearAnchor = ext.parseChapterDate('Jan-02-2025 04:00:00 AM');
-    const previousYear = ext.parseChapterDate('12-31 23:00', newYearAnchor);
+    const isoDate = ext.parseDate('2025-08-25T00:35:00Z');
+    assert.equal(isoDate, String(new Date('2025-08-25T00:35:00Z').getTime()));
+    assert.equal(ext.parseDate(isoDate), isoDate);
+    assert.equal(ext.parseDate(null), '');
+    const newYearAnchor = ext.parseDate('Jan-02-2025 04:00:00 AM');
+    const previousYear = ext.parseDate('12-31 23:00', newYearAnchor);
     assert.equal(new Date(Number(previousYear)).getFullYear(), 2024);
     const longBounds = {
       select: selector => selector === '.read-chapter a[href]' ? [

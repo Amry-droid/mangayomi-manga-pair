@@ -16,7 +16,7 @@ Do not paste a local `file://` path or the GitHub repository page into Mangayomi
 
 - The websites contain some adult titles. Mangayomi may hide the sources unless adult sources are enabled. They are mirrors with largely overlapping catalogs. Keeping them separate lets you switch if one domain has trouble.
 - MangaKakalot displayed a Cloudflare verification during inspection. Mangayomi may be blocked until the site allows its WebView; an extension cannot bypass that verification.
-- Version 0.0.3 sends the required image referrer, understands lazy-loaded image attributes, merges API and inline chapter lists, fills integer chapter gaps, and converts the website's chapter upload times into Mangayomi timestamps. Special decimal chapters returned by the site are kept too.
+- Version 0.0.4 sends the required image referrer, understands lazy-loaded image attributes, merges API and inline chapter lists, fills integer chapter gaps, and follows Atsumaru's `parseDate` → `dateUpload` pattern so Mangayomi receives epoch-millisecond chapter dates. The mirrors' yearless dates are anchored to the title's “Last updated” value. Special decimal chapters returned by the site are kept too.
 - A website layout or domain change may require a source update. When editing either `.js` file, increase its `version` in `index.json` before reuploading.
 
 This repository contains source parsers only, no manga or images. It is unaffiliated with Mangayomi and the websites. Please respect the rights of creators and publishers.
