@@ -25,7 +25,7 @@ const chapter1 = element('Chapter 1', { href: '/manga/example/chapter-1' });
 const chapter2 = element('Chapter 2', { href: '/manga/example/chapter-2' });
 const chapter3 = element('Chapter 3', { href: '/manga/example/chapter-3' });
 const startReading = element('Start Reading', { href: '/manga/example/chapter-1' });
-const newestChapter = element('Newest Chapter', { href: '/manga/example/chapter-3' });
+const newestChapter = element('Newest Chapter', { href: '/manga/example/chapter-89' });
 const row2 = element('', {}, {
   'a[href]': [chapter2],
   span: [element('Chapter 2'), element('100'), element('08-24 23:56')],
@@ -77,12 +77,22 @@ class Document {
 class Client {
   async get(url) {
     let body = 'LIST';
-    if (url.includes('/api/manga/')) body = JSON.stringify({
-      data: { chapters: { items: [
-        { chapter_number: 3, chapter_url: '/manga/example/chapter-3', upload_date: '08-25 00:35' },
-        { chapter_number: 2, chapter_url: '/manga/example/chapter-2', upload_date: '08-24 23:56' },
-      ] } },
-    });
+    if (url.includes('/api/manga/')) {
+      const offsetMatch = url.match(/[?&]offset=(\d+)/);
+      const offset = offsetMatch ? Number(offsetMatch[1]) : 0;
+      const first = offset === 0 ? 89 : 39;
+      const last = offset === 0 ? 40 : 1;
+      const chapters = [];
+      for (let number = first; number >= last; number--) chapters.push({
+        chapter_name: 'Chapter ' + number,
+        chapter_slug: 'chapter-' + number,
+        chapter_num: number,
+        updated_at: new Date(Date.UTC(2025, 0, 1) + number * 86400000).toISOString(),
+      });
+      body = JSON.stringify({ data: { chapters, pagination: {
+        total: 89, limit: 500, offset, has_more: offset === 0,
+      } } });
+    }
     else if (url.includes('/manga/example/chapter-')) body = 'PAGES';
     else if (url.includes('/manga/example')) body = 'DETAIL';
     return { statusCode: 200, body };
@@ -108,12 +118,13 @@ for (const [file, base] of [
     assert.equal(detail.name, 'Example Manga');
     assert.equal(detail.imageUrl, 'https://img.example/cover.webp');
     assert.equal(detail.genre[0], 'Action');
-    assert.equal(detail.chapters.length, 3);
-    assert.equal(detail.chapters[0].url, base + '/manga/example/chapter-3');
-    assert.equal(detail.chapters[2].url, base + '/manga/example/chapter-1');
+    assert.equal(detail.chapters.length, 89);
+    assert.equal(detail.chapters[0].url, base + '/manga/example/chapter-89');
+    assert.equal(detail.chapters[88].url, base + '/manga/example/chapter-1');
+    assert.ok(detail.chapters.every(chapter => chapter.dateUpload),
+      'every paginated chapter should keep its real release date');
     assert.equal(new Date(Number(detail.chapters[0].dateUpload)).getFullYear(), 2025);
     assert.equal(new Date(Number(detail.chapters[1].dateUpload)).getFullYear(), 2025);
-    assert.equal(detail.chapters[2].dateUpload, '');
     const isoDate = ext.parseDate('2025-08-25T00:35:00Z');
     assert.equal(isoDate, String(new Date('2025-08-25T00:35:00Z').getTime()));
     assert.equal(ext.parseDate(isoDate), isoDate);

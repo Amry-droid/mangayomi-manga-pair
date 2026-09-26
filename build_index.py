@@ -34,7 +34,7 @@ def main() -> None:
             "hasCloudflare": cloudflare,
             "sourceCodeUrl": raw + f"/{filename}.js",
             "apiUrl": "",
-            "version": "0.0.5",
+            "version": "0.0.6",
             "isManga": True,
             "itemType": 0,
             "isFullData": False,
