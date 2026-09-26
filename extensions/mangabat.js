@@ -41,6 +41,78 @@ class DefaultExtension extends MProvider {
     return this.absolute(value);
   }
 
+  parseChapterDate(value, anchorTime) {
+    if (value === null || value === undefined || value === "") return "";
+    if (typeof value === "number") {
+      const milliseconds = value < 100000000000 ? value * 1000 : value;
+      return Number.isFinite(milliseconds) ? String(Math.trunc(milliseconds)) : "";
+    }
+    const text = String(value).trim();
+    if (!text) return "";
+    if (/^\d{10,13}$/.test(text)) {
+      const number = Number(text);
+      return String(text.length === 10 ? number * 1000 : number);
+    }
+
+    const now = Date.now();
+    if (/^(?:just now|today)$/i.test(text)) return String(now);
+    if (/^yesterday$/i.test(text)) return String(now - 86400000);
+    const relative = text.match(/^(?:about\s+)?(\d+|an?|one)\s+(minute|hour|day|week|month|year)s?\s+ago$/i);
+    if (relative) {
+      const amount = /^\d+$/.test(relative[1]) ? Number(relative[1]) : 1;
+      const units = { minute: 60000, hour: 3600000, day: 86400000,
+        week: 604800000, month: 2592000000, year: 31536000000 };
+      return String(now - amount * units[relative[2].toLowerCase()]);
+    }
+
+    const months = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+      jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+    let match = text.match(/^([A-Za-z]{3,9})[-\s](\d{1,2})[-,\s]+(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?)?$/i);
+    if (match && months[match[1].slice(0, 3).toLowerCase()] !== undefined) {
+      let hour = Number(match[4] || 0);
+      const period = (match[7] || "").toUpperCase();
+      if (period === "PM" && hour < 12) hour += 12;
+      if (period === "AM" && hour === 12) hour = 0;
+      const date = new Date(Number(match[3]), months[match[1].slice(0, 3).toLowerCase()],
+        Number(match[2]), hour, Number(match[5] || 0), Number(match[6] || 0));
+      return Number.isNaN(date.getTime()) ? "" : String(date.getTime());
+    }
+
+    match = text.match(/^(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+    if (match) {
+      const anchor = Number(anchorTime) || now;
+      let year = new Date(anchor).getFullYear();
+      let date = new Date(year, Number(match[1]) - 1, Number(match[2]),
+        Number(match[3] || 0), Number(match[4] || 0), Number(match[5] || 0));
+      if (date.getTime() > anchor + 129600000) {
+        date = new Date(year - 1, Number(match[1]) - 1, Number(match[2]),
+          Number(match[3] || 0), Number(match[4] || 0), Number(match[5] || 0));
+      }
+      return Number.isNaN(date.getTime()) ? "" : String(date.getTime());
+    }
+
+    const parsed = Date.parse(text);
+    return Number.isNaN(parsed) ? "" : String(parsed);
+  }
+
+  chaptersFromRows(doc, anchorTime) {
+    let rows = doc.select("#chapter-list-container .chapter-list .row");
+    if (!rows.length) rows = doc.select(".chapter-list .row");
+    const chapters = [];
+    let previous = Number(anchorTime) || Date.now();
+    for (const row of rows) {
+      const link = row.selectFirst("a[href]");
+      const url = this.absolute(this.attr(link, "href"));
+      if (!url) continue;
+      const cells = row.select("span");
+      const dateText = cells.length ? this.text(cells[cells.length - 1]) : "";
+      const dateUpload = this.parseChapterDate(dateText, previous);
+      if (dateUpload) previous = Number(dateUpload);
+      chapters.push({ name: this.text(link), url, dateUpload });
+    }
+    return chapters;
+  }
+
   cards(doc) {
     let nodes = doc.select(".list-comic-item-wrap");
     if (!nodes.length) nodes = doc.select(".story_item");
@@ -83,7 +155,7 @@ class DefaultExtension extends MProvider {
   }
   getFilterList() { return []; }
 
-  parseChapters(raw, mangaUrl) {
+  parseChapters(raw, mangaUrl, anchorTime) {
     const chapters = [];
     let data;
     try { data = JSON.parse(raw); } catch (_) { data = raw; }
@@ -94,6 +166,7 @@ class DefaultExtension extends MProvider {
       data = next;
     }
     if (Array.isArray(data)) {
+      let previous = Number(anchorTime) || Date.now();
       for (const chapter of data) {
         if (!chapter || typeof chapter !== "object") continue;
         let name = chapter.name || chapter.chapter_name || chapter.chapter_title ||
@@ -105,14 +178,20 @@ class DefaultExtension extends MProvider {
         if (name && path) {
           name = String(name);
           if (/^\d+(?:\.\d+)?$/.test(name)) name = "Chapter " + name;
-          chapters.push({ name, url: this.absolute(path) });
+          const rawDate = chapter.dateUpload || chapter.date_upload || chapter.uploaded_at ||
+            chapter.updated_at || chapter.created_at || chapter.upload_date || chapter.date || chapter.time;
+          const dateUpload = this.parseChapterDate(rawDate, previous);
+          if (dateUpload) previous = Number(dateUpload);
+          chapters.push({ name, url: this.absolute(path), dateUpload });
         }
       }
     } else if (typeof data === "string") {
       const doc = new Document(data);
+      const rows = this.chaptersFromRows(doc, anchorTime);
+      if (rows.length) return rows;
       for (const link of doc.select(".chapter-list a[href], #chapter-list-container a[href], a[href*='/chapter-']")) {
         const url = this.absolute(this.attr(link, "href"));
-        if (url) chapters.push({ name: this.text(link), url });
+        if (url) chapters.push({ name: this.text(link), url, dateUpload: "" });
       }
     }
     return chapters;
@@ -130,7 +209,11 @@ class DefaultExtension extends MProvider {
     for (const list of lists) {
       for (const chapter of list || []) {
         const url = this.absolute(chapter.url || chapter.link || "");
-        if (url && !byUrl.has(url)) byUrl.set(url, { name: chapter.name || "Chapter", url });
+        if (!url) continue;
+        const incoming = { name: chapter.name || "Chapter", url,
+          dateUpload: chapter.dateUpload === null || chapter.dateUpload === undefined ? "" : String(chapter.dateUpload) };
+        if (!byUrl.has(url)) byUrl.set(url, incoming);
+        else if (!byUrl.get(url).dateUpload && incoming.dateUpload) byUrl.get(url).dateUpload = incoming.dateUpload;
       }
     }
     return Array.from(byUrl.values()).sort((a, b) => {
@@ -157,7 +240,8 @@ class DefaultExtension extends MProvider {
     if (existingIntegers.size >= expected) return chapters;
     const generated = [];
     for (let number = newest; number >= start; number--) {
-      generated.push({ name: "Chapter " + number, url: mangaUrl.replace(/\/$/, "") + "/chapter-" + number });
+      generated.push({ name: "Chapter " + number,
+        url: mangaUrl.replace(/\/$/, "") + "/chapter-" + number, dateUpload: "" });
     }
     return this.mergeChapters(chapters, generated);
   }
@@ -171,6 +255,8 @@ class DefaultExtension extends MProvider {
     const metadata = doc.select(".manga-info-text li").map(li => this.text(li));
     const authorLine = metadata.find(s => /^Author\(s\)\s*:/i.test(s)) || "";
     const statusLine = metadata.find(s => /^Status\s*:/i.test(s)) || "";
+    const updatedLine = metadata.find(s => /^Last updated\s*:/i.test(s)) || "";
+    const anchorTime = this.parseChapterDate(updatedLine.replace(/^Last updated\s*:\s*/i, ""), Date.now());
     const statusText = statusLine.split(":").slice(1).join(":").trim().toLowerCase();
     const status = statusText.includes("ongoing") ? 0 :
       statusText.includes("complete") ? 1 : statusText.includes("hiatus") ? 2 : 5;
@@ -182,12 +268,14 @@ class DefaultExtension extends MProvider {
     const slug = this.attr(container, "data-comic-slug") || link.split("/").pop();
     if (apiTemplate) {
       const endpoint = apiTemplate.replace("__SLUG__", encodeURIComponent(slug));
-      try { apiChapters = this.parseChapters(await this.request(endpoint), link); }
+      try { apiChapters = this.parseChapters(await this.request(endpoint), link, anchorTime); }
       catch (error) { /* An inline chapter list may still be available. */ }
     }
-    const inlineChapters = [];
-    for (const item of doc.select("#chapter-list-container .chapter-list a[href]")) {
-      inlineChapters.push({ name: this.text(item), url: this.absolute(this.attr(item, "href")) });
+    let inlineChapters = this.chaptersFromRows(doc, anchorTime);
+    if (!inlineChapters.length) {
+      inlineChapters = doc.select("#chapter-list-container .chapter-list a[href]").map(item => ({
+        name: this.text(item), url: this.absolute(this.attr(item, "href")), dateUpload: "",
+      }));
     }
     let chapters = this.mergeChapters(apiChapters, inlineChapters);
     chapters = this.completeChapterRange(chapters, doc, link);
