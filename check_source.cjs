@@ -26,6 +26,14 @@ const chapter2 = element('Chapter 2', { href: '/manga/example/chapter-2' });
 const chapter3 = element('Chapter 3', { href: '/manga/example/chapter-3' });
 const startReading = element('Start Reading', { href: '/manga/example/chapter-1' });
 const newestChapter = element('Newest Chapter', { href: '/manga/example/chapter-3' });
+const row2 = element('', {}, {
+  'a[href]': [chapter2],
+  span: [element('Chapter 2'), element('100'), element('08-24 23:56')],
+});
+const row3 = element('', {}, {
+  'a[href]': [chapter3],
+  span: [element('Chapter 3'), element('120'), element('08-25 00:35')],
+});
 
 class Document {
   constructor(body) { this.body = body; }
@@ -37,9 +45,11 @@ class Document {
       '.list-comic-item-wrap': [listingCard], 'a[href]': [next],
     })[selector] || [];
     if (this.body === 'DETAIL') return ({
-      '.manga-info-text li': [element('Author(s) : Example'), element('Status : Ongoing')],
+      '.manga-info-text li': [element('Author(s) : Example'), element('Status : Ongoing'),
+        element('Last updated : Aug-25-2025 04:35:19 AM')],
       '.manga-info-text .genres a': [element('Action')],
       '#chapter-list-container .chapter-list a[href]': [chapter3],
+      '#chapter-list-container .chapter-list .row': [row3],
       '.read-chapter a[href]': [startReading, newestChapter],
     })[selector] || [];
     if (this.body === 'PAGES') return ({
@@ -69,8 +79,8 @@ class Client {
     let body = 'LIST';
     if (url.includes('/api/manga/')) body = JSON.stringify({
       data: { chapters: { items: [
-        { chapter_number: 3, chapter_url: '/manga/example/chapter-3' },
-        { chapter_number: 2, chapter_url: '/manga/example/chapter-2' },
+        { chapter_number: 3, chapter_url: '/manga/example/chapter-3', upload_date: '08-25 00:35' },
+        { chapter_number: 2, chapter_url: '/manga/example/chapter-2', upload_date: '08-24 23:56' },
       ] } },
     });
     else if (url.includes('/manga/example/chapter-')) body = 'PAGES';
@@ -101,6 +111,12 @@ for (const [file, base] of [
     assert.equal(detail.chapters.length, 3);
     assert.equal(detail.chapters[0].url, base + '/manga/example/chapter-3');
     assert.equal(detail.chapters[2].url, base + '/manga/example/chapter-1');
+    assert.equal(new Date(Number(detail.chapters[0].dateUpload)).getFullYear(), 2025);
+    assert.equal(new Date(Number(detail.chapters[1].dateUpload)).getFullYear(), 2025);
+    assert.equal(detail.chapters[2].dateUpload, '');
+    const newYearAnchor = ext.parseChapterDate('Jan-02-2025 04:00:00 AM');
+    const previousYear = ext.parseChapterDate('12-31 23:00', newYearAnchor);
+    assert.equal(new Date(Number(previousYear)).getFullYear(), 2024);
     const longBounds = {
       select: selector => selector === '.read-chapter a[href]' ? [
         element('Start Reading', { href: '/manga/long/chapter-1' }),
