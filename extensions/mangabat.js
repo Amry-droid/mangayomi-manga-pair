@@ -41,7 +41,9 @@ class DefaultExtension extends MProvider {
     return this.absolute(value);
   }
 
-  parseChapterDate(value, anchorTime) {
+  // Atsumaru-style date contract: always return epoch milliseconds as a string.
+  // These mirrors also expose yearless dates, so anchorTime supplies the missing year.
+  parseDate(value, anchorTime) {
     if (value === null || value === undefined || value === "") return "";
     if (typeof value === "number") {
       const milliseconds = value < 100000000000 ? value * 1000 : value;
@@ -106,7 +108,7 @@ class DefaultExtension extends MProvider {
       if (!url) continue;
       const cells = row.select("span");
       const dateText = cells.length ? this.text(cells[cells.length - 1]) : "";
-      const dateUpload = this.parseChapterDate(dateText, previous);
+      const dateUpload = this.parseDate(dateText, previous);
       if (dateUpload) previous = Number(dateUpload);
       chapters.push({ name: this.text(link), url, dateUpload });
     }
@@ -180,7 +182,7 @@ class DefaultExtension extends MProvider {
           if (/^\d+(?:\.\d+)?$/.test(name)) name = "Chapter " + name;
           const rawDate = chapter.dateUpload || chapter.date_upload || chapter.uploaded_at ||
             chapter.updated_at || chapter.created_at || chapter.upload_date || chapter.date || chapter.time;
-          const dateUpload = this.parseChapterDate(rawDate, previous);
+          const dateUpload = this.parseDate(rawDate, previous);
           if (dateUpload) previous = Number(dateUpload);
           chapters.push({ name, url: this.absolute(path), dateUpload });
         }
@@ -256,7 +258,7 @@ class DefaultExtension extends MProvider {
     const authorLine = metadata.find(s => /^Author\(s\)\s*:/i.test(s)) || "";
     const statusLine = metadata.find(s => /^Status\s*:/i.test(s)) || "";
     const updatedLine = metadata.find(s => /^Last updated\s*:/i.test(s)) || "";
-    const anchorTime = this.parseChapterDate(updatedLine.replace(/^Last updated\s*:\s*/i, ""), Date.now());
+    const anchorTime = this.parseDate(updatedLine.replace(/^Last updated\s*:\s*/i, ""), Date.now());
     const statusText = statusLine.split(":").slice(1).join(":").trim().toLowerCase();
     const status = statusText.includes("ongoing") ? 0 :
       statusText.includes("complete") ? 1 : statusText.includes("hiatus") ? 2 : 5;
