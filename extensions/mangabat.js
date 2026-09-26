@@ -41,30 +41,39 @@ class DefaultExtension extends MProvider {
     return this.absolute(value);
   }
 
-  // Atsumaru-style date contract: always return epoch milliseconds as a string.
-  // These mirrors also expose yearless dates, so anchorTime supplies the missing year.
-  parseDate(value, anchorTime) {
+  // Kept identical to Atsumaru: MChapter.dateUpload is an epoch-ms string.
+  parseDate(value) {
+    if (value == null) return "";
+    if (typeof value == "number") return value.toString();
+    var parsed = parseInt(value);
+    if (!isNaN(parsed) && `${parsed}` == `${value}`) return `${parsed}`;
+    var date = new Date(value.replace("T ", "T"));
+    return isNaN(date.getTime()) ? "" : date.getTime().toString();
+  }
+
+  // MangaBat uses relative dates and MM-DD HH:mm without a year. Normalize
+  // those site-specific values first, then send them through Atsumaru's parser.
+  normalizeDate(value, anchorTime) {
     if (value === null || value === undefined || value === "") return "";
     if (typeof value === "number") {
-      const milliseconds = value < 100000000000 ? value * 1000 : value;
-      return Number.isFinite(milliseconds) ? String(Math.trunc(milliseconds)) : "";
+      return value < 100000000000 ? value * 1000 : value;
     }
     const text = String(value).trim();
     if (!text) return "";
     if (/^\d{10,13}$/.test(text)) {
       const number = Number(text);
-      return String(text.length === 10 ? number * 1000 : number);
+      return text.length === 10 ? number * 1000 : number;
     }
 
     const now = Date.now();
-    if (/^(?:just now|today)$/i.test(text)) return String(now);
-    if (/^yesterday$/i.test(text)) return String(now - 86400000);
+    if (/^(?:just now|today)$/i.test(text)) return now;
+    if (/^yesterday$/i.test(text)) return now - 86400000;
     const relative = text.match(/^(?:about\s+)?(\d+|an?|one)\s+(minute|hour|day|week|month|year)s?\s+ago$/i);
     if (relative) {
       const amount = /^\d+$/.test(relative[1]) ? Number(relative[1]) : 1;
       const units = { minute: 60000, hour: 3600000, day: 86400000,
         week: 604800000, month: 2592000000, year: 31536000000 };
-      return String(now - amount * units[relative[2].toLowerCase()]);
+      return now - amount * units[relative[2].toLowerCase()];
     }
 
     const months = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
@@ -77,7 +86,7 @@ class DefaultExtension extends MProvider {
       if (period === "AM" && hour === 12) hour = 0;
       const date = new Date(Number(match[3]), months[match[1].slice(0, 3).toLowerCase()],
         Number(match[2]), hour, Number(match[5] || 0), Number(match[6] || 0));
-      return Number.isNaN(date.getTime()) ? "" : String(date.getTime());
+      return Number.isNaN(date.getTime()) ? "" : date.getTime();
     }
 
     match = text.match(/^(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
@@ -90,11 +99,10 @@ class DefaultExtension extends MProvider {
         date = new Date(year - 1, Number(match[1]) - 1, Number(match[2]),
           Number(match[3] || 0), Number(match[4] || 0), Number(match[5] || 0));
       }
-      return Number.isNaN(date.getTime()) ? "" : String(date.getTime());
+      return Number.isNaN(date.getTime()) ? "" : date.getTime();
     }
 
-    const parsed = Date.parse(text);
-    return Number.isNaN(parsed) ? "" : String(parsed);
+    return text;
   }
 
   chaptersFromRows(doc, anchorTime) {
@@ -108,7 +116,7 @@ class DefaultExtension extends MProvider {
       if (!url) continue;
       const cells = row.select("span");
       const dateText = cells.length ? this.text(cells[cells.length - 1]) : "";
-      const dateUpload = this.parseDate(dateText, previous);
+      const dateUpload = this.parseDate(this.normalizeDate(dateText, previous));
       if (dateUpload) previous = Number(dateUpload);
       chapters.push({ name: this.text(link), url, dateUpload });
     }
@@ -182,7 +190,7 @@ class DefaultExtension extends MProvider {
           if (/^\d+(?:\.\d+)?$/.test(name)) name = "Chapter " + name;
           const rawDate = chapter.dateUpload || chapter.date_upload || chapter.uploaded_at ||
             chapter.updated_at || chapter.created_at || chapter.upload_date || chapter.date || chapter.time;
-          const dateUpload = this.parseDate(rawDate, previous);
+          const dateUpload = this.parseDate(this.normalizeDate(rawDate, previous));
           if (dateUpload) previous = Number(dateUpload);
           chapters.push({ name, url: this.absolute(path), dateUpload });
         }
@@ -258,7 +266,8 @@ class DefaultExtension extends MProvider {
     const authorLine = metadata.find(s => /^Author\(s\)\s*:/i.test(s)) || "";
     const statusLine = metadata.find(s => /^Status\s*:/i.test(s)) || "";
     const updatedLine = metadata.find(s => /^Last updated\s*:/i.test(s)) || "";
-    const anchorTime = this.parseDate(updatedLine.replace(/^Last updated\s*:\s*/i, ""), Date.now());
+    const anchorTime = this.parseDate(this.normalizeDate(
+      updatedLine.replace(/^Last updated\s*:\s*/i, ""), Date.now()));
     const statusText = statusLine.split(":").slice(1).join(":").trim().toLowerCase();
     const status = statusText.includes("ongoing") ? 0 :
       statusText.includes("complete") ? 1 : statusText.includes("hiatus") ? 2 : 5;
